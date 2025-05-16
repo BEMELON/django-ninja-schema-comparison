@@ -1,0 +1,1 @@
+# django-ninja-schema-comparison
