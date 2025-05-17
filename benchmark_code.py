@@ -2,119 +2,21 @@ import gc
 import os
 import statistics
 import time
-from typing import Any, Dict, List
 import matplotlib.pyplot as plt
-from pydantic.v1 import BaseModel as BaseModelV1
 
 import django
 
-# Django 설정
+# Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django_settings')
 django.setup()
 
-from ninja import Schema
-from pydantic import BaseModel
-
-# DjangoGetter from notebook
-from pydantic.utils import GetterDict
-from django.db.models import Manager, QuerySet
-from django.db.models.fields.files import FieldFile
-from django.template import Variable, VariableDoesNotExist
-
-class DjangoGetter(GetterDict):
-    __slots__ = ("_obj",)
-
-    def __init__(self, obj: any):
-        self._obj = obj
-
-    def __getitem__(self, key: str) -> any:
-        try:
-            item = getattr(self._obj, key)
-        except AttributeError:
-            try:
-                # 점으로 구분된 속성 경로 처리 (예: "user.profile.name")
-                item = Variable(key).resolve(self._obj)
-            except VariableDoesNotExist as e:
-                raise KeyError(key) from e
-        return self._convert_result(item)
-
-    def get(self, key: any, default: any = None) -> any:
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    def _convert_result(self, result: any) -> any:
-        if isinstance(result, Manager):
-            return list(result.all())
-
-        elif isinstance(result, getattr(QuerySet, "__origin__", QuerySet)):
-            return list(result)
-
-        if callable(result) and not isinstance(result, type):
-            return result()
-
-        elif isinstance(result, FieldFile):
-            if not result:
-                return None
-            return result.url
-
-        return result
-
-# Define SimpleDjangoSchema if not available
-class SimpleDjangoSchema(BaseModel):
-    """Simplified Django Schema class with resolver logic removed.
-    Use for faster performance."""
-    class Config:
-        from_attributes = True
-        getter_dict = DjangoGetter
-
-# Schema 클래스 정의 (사용자가 제공한 스키마 구조를 사용)
-class MemberSchema(Schema):
-    id: int
-    nickname: str
-    class Config:
-        orm_mode = True
-
-class MemberListSchema(Schema):
-    member_list: List[MemberSchema]
-    class Config:
-        orm_mode = True
-
-# SimpleDjangoSchema 클래스 정의
-class MemberSimpleSchema(SimpleDjangoSchema):
-    id: int
-    nickname: str
-    class Config:
-        orm_mode = True
-
-class MemberListSimpleSchema(SimpleDjangoSchema):
-    member_list: List[MemberSimpleSchema]
-    class Config:
-        orm_mode = True
-
-# BaseModel 클래스 정의
-class MemberBaseSchema(BaseModel):
-    id: int
-    nickname: str
-    class Config:
-        from_attributes = True
-
-class MemberListBaseSchema(BaseModel):
-    member_list: List[MemberBaseSchema]
-    class Config:
-        from_attributes = True
-
-class MemberBaseV1Schema(BaseModelV1):
-    id: int
-    nickname: str
-    class Config:
-        orm_mode = True
-
-class MemberListBaseV1Schema(BaseModelV1):
-    member_list: List[MemberBaseV1Schema]
-    class Config:
-        orm_mode = True
+# Import refactored schema models
+from models import (
+    MemberListSchema,
+    MemberListSimpleSchema,
+    MemberListBaseSchema,
+    MemberListBaseV1Schema,
+)
 
 # Mock Member class
 class Member:
@@ -150,7 +52,7 @@ def create_test_data(count: int):
     
     return member_lists, dict_data
 
-def run_benchmark(sample_size: int = 1000, iterations: int = 5) -> Dict[str, Any]:
+def run_benchmark(sample_size: int = 1000, iterations: int = 5) -> dict[str, any]:
     """
     Run a benchmark with specified sample size and iterations.
     
@@ -167,52 +69,51 @@ def run_benchmark(sample_size: int = 1000, iterations: int = 5) -> Dict[str, Any
     print(f"Running benchmark: sample size {sample_size}, {iterations} iterations")
     print(f"Generating test data...")
 
-    # 데이터 준비
+    # Prepare test data
     member_lists, test_data_dicts = create_test_data(sample_size)
     print(f"Number of objects created: {len(member_lists)}")
     print(f"Number of dictionaries created: {len(test_data_dicts)}")
 
-    # 벤치마크 실행 결과 저장
+    # Benchmarking variables
     base_model_times = []
     base_model_v1_times = []
     simple_schema_times = []
     schema_times = []
-    base_model_orm_times = []
 
     # 여러 번 반복 실행
     for i in range(iterations):
         print(f"Running iteration {i+1}/{iterations}...")
 
-        # 가비지 컬렉션으로 메모리 정리
+        # Garbage collection to free up memory
         gc.collect()
 
-        # 1. BaseModel 테스트 - 딕셔너리 데이터 사용
+        # 1. BaseModel Test
         start_time = time.perf_counter()
         base_model_result = [MemberListBaseSchema.model_validate(data) for data in test_data_dicts]
         base_model_time = time.perf_counter() - start_time
         base_model_times.append(base_model_time)
 
-        # 가비지 컬렉션으로 메모리 정리
+        # Garbage collection to free up memory
         del base_model_result
         gc.collect()
 
-        # 2. SimpleDjangoSchema 테스트
+        # 2.SimpleDjangoSchema Test
         start_time = time.perf_counter()
         simple_schema_result = [MemberListSimpleSchema.model_validate(member_list) for member_list in member_lists]
         simple_schema_time = time.perf_counter() - start_time
         simple_schema_times.append(simple_schema_time)
 
-        # 가비지 컬렉션으로 메모리 정리
+        # Garbage collection to free up memory
         del simple_schema_result
         gc.collect()
 
-        # 3. Schema 테스트
+        # 3. Schema Test
         start_time = time.perf_counter()
         schema_result = [MemberListSchema.model_validate(data) for data in test_data_dicts]
         schema_time = time.perf_counter() - start_time
         schema_times.append(schema_time)
 
-        # 가비지 컬렉션으로 메모리 정리
+        # Garbage collection to free up memory
         del schema_result
         gc.collect()
 
@@ -222,46 +123,12 @@ def run_benchmark(sample_size: int = 1000, iterations: int = 5) -> Dict[str, Any
         base_model_v1_time = time.perf_counter() - start_time
         base_model_v1_times.append(base_model_v1_time)
 
-        # 결과 출력
+        # print results
         print(
             f"  BaseModel: {base_model_time:.6f}s, SimpleDjangoSchema: {simple_schema_time:.6f}s, Schema: {schema_time:.6f}s, BaseModelV1: {base_model_v1_time:.6f}s")
 
         # 메모리 정리
         gc.collect()
-
-    # 3.5 ORM에서 BaseModel로 직접 변환 테스트
-    try:
-        print("ORM에서 BaseModel로 직접 변환 테스트 중...")
-        base_model_orm_times = []
-
-        for i in range(iterations):
-            # 가비지 컬렉션으로 메모리 정리
-            gc.collect()
-
-            start_time = time.perf_counter()
-            base_model_orm_result = [MemberListBaseSchema.from_orm(member_list) for member_list in member_lists]
-            base_model_orm_time = time.perf_counter() - start_time
-            base_model_orm_times.append(base_model_orm_time)
-
-            print(f"  BaseModel from_orm: {base_model_orm_time:.6f}s")
-
-            # 메모리 정리
-            del base_model_orm_result
-            gc.collect()
-
-        base_model_orm_avg = statistics.mean(base_model_orm_times)
-        base_model_orm_median = statistics.median(base_model_orm_times)
-        schema_avg = statistics.mean(schema_times)
-        schema_median = statistics.median(schema_times)
-        base_orm_improvement_avg = ((schema_avg - base_model_orm_avg) / schema_avg) * 100
-        base_orm_improvement_median = ((schema_median - base_model_orm_median) / schema_median) * 100
-    except Exception as e:
-        print(f"BaseModel from_orm 테스트 실패: {e}")
-        base_model_orm_times = []
-        base_model_orm_avg = None
-        base_model_orm_median = None
-        base_orm_improvement_avg = None
-        base_orm_improvement_median = None
 
     # 통계 계산
     schema_avg = statistics.mean(schema_times)
@@ -292,30 +159,25 @@ def run_benchmark(sample_size: int = 1000, iterations: int = 5) -> Dict[str, Any
         'simple_schema_times': simple_schema_times,
         'base_model_times': base_model_times,
         'base_model_v1_times': base_model_v1_times,
-        'base_model_orm_times': base_model_orm_times,
         'schema_avg': schema_avg,
         'simple_schema_avg': simple_schema_avg,
         'base_model_avg': base_model_avg,
         'base_model_v1_avg': base_model_v1_avg,
-        'base_model_orm_avg': base_model_orm_avg,
         'schema_median': schema_median,
         'simple_schema_median': simple_schema_median,
         'base_model_median': base_model_median,
         'base_model_v1_median': base_model_v1_median,
-        'base_model_orm_median': base_model_orm_median,
         'simple_improvement_avg': simple_improvement_avg,
         'simple_improvement_median': simple_improvement_median,
         'base_improvement_avg': base_improvement_avg,
         'base_improvement_median': base_improvement_median,
-        'base_orm_improvement_avg': base_orm_improvement_avg,
-        'base_orm_improvement_median': base_orm_improvement_median,
         'base_model_v1_improvement_avg': base_model_v1_improvement_avg,
         'base_model_v1_improvement_median': base_model_v1_improvement_median
     }
 
     return results
 
-def print_results(results: Dict[str, Any]) -> None:
+def print_results(results: dict[str, any]) -> None:
     """
     Print benchmark results in a formatted way.
     
@@ -415,8 +277,8 @@ def visualize_benchmark_results(results_list):
     
     # 1. Execution time graph (top subplot)
     plt.subplot(2, 2, 1)
-    plt.plot(sample_sizes, schema_avgs, 'o-', linewidth=2, label='Schema')
-    plt.plot(sample_sizes, simple_schema_avgs, 's-', linewidth=2, label='SimpleDjangoSchema')
+    plt.plot(sample_sizes, schema_avgs, 'o-', linewidth=2, label='Schema (v2)')
+    plt.plot(sample_sizes, simple_schema_avgs, 's-', linewidth=2, label='SimpleDjangoSchema (v2)')
     plt.plot(sample_sizes, base_model_avgs, '^-', linewidth=2, label='BaseModel (v2)')
     plt.plot(sample_sizes, pydantic_v1_avgs, 'x-', linewidth=2, label='BaseModel (v1)')
     
